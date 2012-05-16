@@ -1,0 +1,9 @@
+; $Id$
+; Intended for a test
+name = Quiz Marking
+description = An Extension of Quiz Module written for Sakshama Gn 09 for calculating marks
+core = 6.x
+dependencies[] = quiz
+dependencies[] = multichoice
+dependencies[] = quiz_question
+package = Sakshama

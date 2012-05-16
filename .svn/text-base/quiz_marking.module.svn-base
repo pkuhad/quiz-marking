@@ -1,0 +1,440 @@
+<?php 
+// $ID$
+
+
+/**
+* Implementation of hook_schema_alter(). We alter $schema by reference.
+*
+* @param $schema
+* The system-wide schema collected by drupal_get_schema().
+*/
+
+
+function quiz_marking_schema_alter(&$schema) {
+// Add 'mark' field to existing schema.
+$schema['quiz_node_results']['fields']['marks'] = array(
+	'type' => 'int',
+	'unsigned' => FALSE,
+	'not null' => TRUE,
+	'default' => 0,
+	'description' => t('Calculated Marks for a Result ID'),
+	);
+
+// Add 'is_calculated' field to existing schema.
+$schema['quiz_node_results']['fields']['is_calculated'] = array(
+	'type' => 'int',
+	'unsigned' => TRUE,
+	'not null' => TRUE,
+	'default' => 0,
+	'description' => t('Whether Marks has been calculated or not for a Result ID'),
+	);
+
+// Add 'time_left' field to existing schema.
+$schema['quiz_node_results']['fields']['time_left'] = array(
+	'type' => 'int',
+	'unsigned' => TRUE,
+	'not null' => TRUE,
+	'default' => 0,
+	'description' => t('errata for Quiz Module'),
+	);
+	
+// Add 'sks_user_id' field to existing schema in users table
+$schema['users']['fields']['sks_user_id'] = array(
+	'type' => 'int',
+	'unsigned' => FALSE,
+	'not null' => TRUE,
+	'default' => -1,
+	'description' => t('Unique User ID Provided to Sakshama User'),
+	);
+	
+// Add 'sks_user_id' field to existing schema in users table
+$schema['users']['fields']['sks_team_id'] = array(
+	'type' => 'int',
+	'unsigned' => FALSE,
+	'not null' => TRUE,
+	'default' => -1,
+	'description' => t('Unique Team ID Provided to Sakshama User'),
+	);
+	
+}
+
+/**
+* Implementation of hook_user().
+* NOTE : This implementation bounds a user to complete question in a single session. Specific to ISC 09 and Sakshama 09
+* LOVELY STUFF FOR ME TO LEAR hook_user :)
+*
+*/
+
+function quiz_marking_user($op, &$edit, &$account, $category = NULL) {
+	switch($op) {
+		case 'logout':
+			db_query('UPDATE {quiz_node_results} SET time_left = %d WHERE uid = %d', 1, $account->uid);
+			break;
+		
+		case 'view' :
+			$account->content['sks'] = array(
+			'#type' => 'user_profile_category',
+			'#title' => t('Sakshama GN 09'),
+			'#weight' => -10,
+			);
+
+		// current user id
+			$account->content['sks']['sks_user_id'] = array(
+			'#type' => 'user_profile_item',
+			'#title' => t('Your Sakshama User ID'),
+			'#value' => $account->sks_user_id,
+			'#attributes' => array('class' => 'sks_user_id'),
+			'#weight' => 9,
+			);
+			
+			// current team id
+			$account->content['sks']['sks_team_id'] = array(
+			'#type' => 'user_profile_item',
+			'#title' => t('Your Sakshama Team ID'),
+			'#value' => $account->sks_team_id,
+			'#attributes' => array('class' => 'sks_team_id'),
+			'#weight' => 10,
+			);
+
+			break;		
+	
+
+		case 'register':
+			$skip = 1;
+		case 'form':
+			if($account->sks_user_id != -1) {
+				$default_sks_user_id = $account->sks_user_id;
+			}
+			else {
+				$default_sks_user_id = '';
+			}
+			if($account->sks_team_id != -1) {
+				$default_sks_team_id = $account->sks_team_id;
+			}
+			else {
+				$default_sks_team_id = '';
+			}
+
+			// Adding a fieldset specific for Sakshama 
+
+			if(isset($skip) || $category == 'sks')
+			{
+			  $fields['sks'] = array(
+		      '#type' => 'fieldset',
+		      '#title' => t('Sakshama GN 09'),
+		    );
+
+		    $fields['sks']['sks_user_id'] = array(
+			    '#type' => 'textfield',
+					'#title' => t('Your Sakshama User ID'),
+					'#required' => TRUE,
+					'#description' => t('Carefully fill provided user id'),
+					'#default_value' => $default_sks_user_id,
+					'#maxlength' => 255,
+		    );
+		
+		    $fields['sks']['sks_team_id'] = array(
+			    '#type' => 'textfield',
+					'#title' => t('Your Event Team ID'),
+					'#description' => t('Carefully fill provided team id'),					
+					'#required' => TRUE,
+					'#default_value' => $default_sks_team_id,
+					'#maxlength' => 255,
+  	  	);
+    	
+  	  	return $fields;
+    	}
+  
+    	break;
+
+    case 'categories':
+    		$data[]=  array(
+      	'name' => 'sks',
+	      'title' => 'Sakshama GN 09',
+				'access callback' => '_quiz_marking_edit_id_access',
+  	    'weight' => 3,
+  	   );
+  	   return $data;
+
+  	   
+    case 'load':
+ 			// Add sks_user_id and sks_team_id to user object
+			$result = db_query("SELECT sks_user_id,sks_team_id from {users} WHERE uid = %d", $account->uid);
+			$array = db_fetch_array($result);
+			$account->sks_user_id = $array['sks_user_id'];
+			$account->sks_team_id = $array['sks_team_id'];
+			break;
+			
+    case 'validate':
+		if($category == 'sks' )
+		{
+ 	  	if((int)$edit['sks_user_id'] <= 0 ) {
+    		form_set_error('sks_user_id', t('Invalid input'));
+    	}
+    	
+    	if((int)$edit['sks_team_id'] <= 0 ) {
+    		form_set_error('sks_team_id', t('Invalid input'));
+    	}
+    }
+    	//checking sks_user_id
+    	
+    	$exist_sks_user_id = db_result(db_query('SELECT COUNT(*) FROM {users} WHERE {users}.sks_user_id = %d AND {users}.uid != %d', $edit['sks_user_id'], $account->uid));
+    	if($exist_sks_user_id != 0) {
+    		form_set_error('sks_user_id', t('Ooops..Such User ID already exists: @pb', array('@pb'=> $edit['sks_user_id'])));
+    	}
+      
+      //checking sks_team_id
+      $exist_sks_team_id = db_result(db_query('SELECT COUNT(*) FROM {users} WHERE {users}.sks_team_id = %d AND {users}.uid != %d', $edit['sks_team_id'], $account->uid));
+    	if($exist_sks_team_id != 0) {
+    		form_set_error('sks_team_id', t('Ooops..Such Team ID already exists: @pb', array('@pb'=> $edit['sks_team_id'])));
+    	}
+		
+			break;
+		
+		case 'update':
+			if(!isset($edit['sks_user_id']))
+				$edit['sks_user_id'] = $account->sks_user_id;
+			if(!isset($edit['sks_team_id']))
+				$edit['sks_team_id'] = $account->sks_team_id;
+				
+    case 'insert':
+    	db_query("UPDATE {users} SET sks_user_id = '%d', sks_team_id = '%d' WHERE uid = %d", $edit['sks_user_id'], $edit['sks_team_id'], $account->uid);
+    	break;
+
+	}
+}
+
+function _quiz_marking_edit_id_access() {
+	return user_access('edit own sks ids');
+}
+
+/**
+ * Implementation of hook)perm().
+ */
+function quiz_marking_perm() {
+	return array('edit own sks ids');
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+
+function quiz_marking_menu() {
+	$items['admin/quiz/quiz_marking'] = array (
+		'title' => 'Quiz Results',
+		'description' => 'View Quiz Results with marks and rankings',
+		'page callback' => '_show_available_quizes',
+		'access arguments' => array('administer quiz'),
+	);
+	
+	$items['admin/quiz/%/view_marks/%'] = array(
+    'page callback' => '_quiz_marking_view_operation',
+    'page arguments' => array(2,4),
+    'access arguments' => array('administer quiz'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+
+
+/**
+ * Implementation of hook_nodeapi().
+ */
+
+function quiz_marking_nodeapi(&$node, $op, $teaser, $page) {
+
+  global $user;
+
+	if( $node->type == 'multichoice' || $node->type == 'true_false' ) {
+		  
+	  switch($op) {
+				
+			//While Loading the node object
+			case 'load' :
+					//earlier I used return db_fetch_object .. . but it is not working dunno why !
+					// may be because it is nodeapi function 
+					
+					$arr = db_fetch_array(db_query('SELECT positive_add, negative_less FROM {quiz_marking} WHERE vid = %d', $node->vid));
+					
+					if(isset($arr['positive_add']) and isset($arr['negative_less']))
+					{
+						$node->positive_add = $arr['positive_add'] ;
+						$node->negative_less = $arr['negative_less'];
+					}
+					
+					break;
+			
+			case 'view' :
+//					drupal_access_denied();
+					if($node->positive_add != 0) {
+						$node->content['marking_information'] = array(
+					   '#value' => t('<b>Right Answer : + @add <br/>  Wrong Answer    : - @less </b>', array('@add' => $node->positive_add , '@less' => $node->negative_less)),
+					   '#weight' => 10
+						);
+					}
+
+					break;
+					
+			case 'insert':
+					db_query("INSERT INTO {quiz_marking} (nid,vid,positive_add,negative_less) VALUES (%d, %d, %d,%d)", $node->nid, $node->vid, $node->marking['positive_add'], $node->marking['negative_less']);
+					break;
+			
+			case 'update':
+					$is_not_there = db_fetch_array(db_query('SELECT * FROM {quiz_marking} WHERE nid = %d AND vid = %d', $node->nid, $node->vid));
+					
+					if(!isset($is_not_there['nid']) || $node->revision) {
+						db_query("INSERT INTO {quiz_marking} (nid,vid,positive_add,negative_less) VALUES (%d, %d, %d,%d)", $node->nid, $node->vid, $node->marking['positive_add'], $node->marking['negative_less']);
+				}
+				else {
+					db_query("UPDATE {quiz_marking} SET positive_add = '%d',negative_less = '%d' WHERE vid = %d", $node->marking['positive_add'], $node->marking['negative_less'], $node->vid);
+				}
+				break;
+ 	}
+ }
+ 
+}
+
+/**
+ * Implementation of hook_form_alter(). Adds positive_add and negative_less item fields to the node form.
+ */
+function quiz_marking_form_alter(&$form, $form_state, $form_id) {
+	
+	if($form['#node']->type == 'multichoice' || $form['#node']->type == 'true_false' ) {
+	  if (isset($form['#node']) && $form['#node']->type .'_node_form' == $form_id) {
+
+	    $form['marking'] = array(
+	      '#type' => 'fieldset',
+	      '#title' => t('Quiz Marking'),
+	      '#access' => user_access('administer quiz'),
+	      '#collapsible' => TRUE,
+	      '#collapsed' => FALSE,
+	      '#tree' => TRUE,
+	      '#weight' => 5,
+	    );
+
+	    $form['marking']['positive_add'] = array(
+		    '#type' => 'textfield',
+				'#title' => t('Positive Add if answer is right'),
+				'#required' => TRUE,
+				'#default_value' => isset($form['#node']->positive_add)? $form['#node']->positive_add :0,
+				'#maxlength' => 255,
+	    );
+		
+	    $form['marking']['negative_less'] = array(
+		    '#type' => 'textfield',
+				'#title' => t('Negative Less if answer is wrong'),
+				'#required' => TRUE,
+				'#default_value' => isset($form['#node']->negative_less)? $form['#node']->negative_less :0,
+				'#maxlength' => 255,
+    	);
+   }
+  }
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function quiz_marking_theme() {
+  return array(
+    'quiz_marking_show_ranks' => array(
+      'arguments' => array('results' => NULL),
+      'file' => 'quiz_marking.admin.inc',
+    ),
+    'quiz_marking_show_available_quizes' => array(
+      'arguments' => array('results' => NULL),
+      'file' => 'quiz_marking.admin.inc',
+    )
+  );
+}
+
+/**
+ *  Custom Functions
+ */
+
+function _quiz_marking_view_operation($quiz_id,$op) {
+	$results = array();
+	$breadcrumb = drupal_get_breadcrumb();
+  // Lets add the Quiz Results to the breadcrumb array.
+  $breadcrumb[] = l(t('Quiz Results'), 'admin/quiz/quiz_marking');
+  drupal_set_breadcrumb($breadcrumb);
+	//FOR A QUIZ ID
+	
+	//setting title
+	$heading = db_result(db_query('SELECT title FROM {node} WHERE nid = %d', $quiz_id));
+	drupal_set_title($heading);	
+	
+	$select_result_ids = db_query('SELECT * FROM {quiz_node_results} WHERE nid = %d', $quiz_id);
+	
+	//for each result id under this quiz
+	
+	//$op == 0 => Cached View Operation (is_calculated is considered)
+	//$op == 1 => Force View Operation  (is_calculated is not considered)
+
+	while($result = db_fetch_array($select_result_ids)) {
+			
+		if($op || !$result['is_calculated']) {		
+	
+			$marks = 0;		
+				
+			$select_question_nid_vid = db_query('SELECT * FROM {quiz_node_results_answers} WHERE result_id = %d', $result['result_id']);
+			//for each question_id unser a result_id		
+			while($question = db_fetch_array($select_question_nid_vid)) {
+				$question_marking = db_fetch_array(db_query('SELECT * from {quiz_marking} WHERE nid = %d AND vid = %d', $question['question_nid'], $question['question_vid']));
+			
+				if(isset($question_marking['positive_add'])) { //may be there is no entry for such question nid+vid
+					if(!$question['is_skipped']) {
+						if($question['is_correct']) {
+							$marks += $question_marking['positive_add'];
+						}
+						else {
+							$marks -= $question_marking['negative_less'];
+						}
+					}
+				}
+			}
+		
+		db_query('UPDATE {quiz_node_results} SET marks = %d, is_calculated = %d WHERE nid = %d AND result_id = %d', $marks, 1, $quiz_id, $result['result_id']);
+		}
+	}
+
+	if($op == 1)
+			drupal_set_message('Marking has been updated');
+	
+	$results = _quiz_marking_calculate_ranks($quiz_id);
+	return theme('quiz_marking_show_ranks',$results);
+	
+}
+
+function _quiz_marking_calculate_ranks($quiz_id) {
+	$results = array();
+	
+		$dbresult = db_query('SELECT * FROM {quiz_node_results},{users} WHERE {quiz_node_results}.nid = %d AND {quiz_node_results}.uid != %d AND {quiz_node_results}.uid = {users}.uid ORDER BY marks DESC', $quiz_id, 1);
+	
+	while( $line = db_fetch_array($dbresult) ) {
+		$results[$line['result_id']] = $line ;
+	}
+
+	return $results;
+}
+
+function _show_available_quizes() {
+	$results = array();	
+
+	$breadcrumb = drupal_get_breadcrumb();
+  // Lets add the Quiz Results to the breadcrumb array.
+  $breadcrumb[] = l(t('Quiz Results'), 'admin/quiz/quiz_marking');
+  drupal_set_breadcrumb($breadcrumb);
+
+	$dbresult = db_query('SELECT DISTINCT {quiz_node_results}.nid as nid,title FROM {quiz_node_results},{node} WHERE {node}.nid = {quiz_node_results}.nid');
+	
+	while( $line = db_fetch_array($dbresult) ) {
+		$results[] = $line;
+	}
+	return theme('quiz_marking_show_available_quizes',$results);
+
+
+}
+
+

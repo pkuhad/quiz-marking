@@ -1,0 +1,286 @@
+<?php 
+// $ID$
+
+
+/**
+* Implementation of hook_schema_alter(). We alter $schema by reference.
+*
+* @param $schema
+* The system-wide schema collected by drupal_get_schema().
+*/
+
+
+function quiz_marking_schema_alter(&$schema) {
+	
+	// Add 'mark' field to existing schema.
+	$schema['quiz_node_results']['fields']['marks'] = array(
+		'type' => 'int',
+		'unsigned' => FALSE,
+		'not null' => TRUE,
+		'default' => 0,
+		'description' => t('Calculated Marks for a Result ID'),
+	);
+
+	// Add 'is_calculated' field to existing schema.
+	$schema['quiz_node_results']['fields']['is_calculated'] = array(
+		'type' => 'int',
+		'unsigned' => TRUE,
+		'not null' => TRUE,
+		'default' => 0,
+		'description' => t('Whether Marks has been calculated or not for a Result ID'),
+	);
+
+	// Add 'time_left' field to existing schema.
+	$schema['quiz_node_results']['fields']['time_left'] = array(
+		'type' => 'int',
+		'unsigned' => TRUE,
+		'not null' => TRUE,
+		'default' => 0,
+		'description' => t('errata for Quiz Module'),
+	);
+	
+
+}
+
+/**
+ * Implementation of hook_user().
+ */
+
+function quiz_marking_user($op, &$edit, &$account, $category = NULL) {
+	switch($op) {
+		case 'logout':
+		  // This is custom hack to disqualify a user if he logs out in middle of exam, feel free to comment it out
+			db_query('UPDATE {quiz_node_results} SET time_left = %d WHERE uid = %d', 1, $account->uid);
+			break;
+	}
+}
+
+
+/**
+ * Implementation of hook_menu().
+ */
+
+function quiz_marking_menu() {
+
+	$items['admin/quiz/quiz_marking'] = array (
+		'title' => 'Quiz Results',
+		'description' => 'View Quiz Results with marks and rankings',
+		'page callback' => '_show_available_quizes',
+		'access arguments' => array('administer quiz'),
+	);
+	
+	$items['admin/quiz/%/view_marks/%'] = array(
+    'page callback' => '_quiz_marking_view_operation',
+    'page arguments' => array(2,4),
+    'access arguments' => array('administer quiz'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+
+
+/**
+ * Implementation of hook_nodeapi().
+ */
+
+function quiz_marking_nodeapi(&$node, $op, $teaser, $page) {
+
+  global $user;
+  
+  // Basic CRUD Operations
+  // You can add markings to more 'quiz node types' , If not sure then have a look into 'node_types' to figure it out
+  // I am providing for two 'quiz node types' : Multichoice and True-False
+	if( $node->type == 'multichoice' || $node->type == 'truefalse' ) {
+		  
+	  switch($op) {
+				
+			case 'load' :
+					$arr = db_fetch_array(db_query('SELECT positive_add, negative_less FROM {quiz_marking} WHERE vid = %d', $node->vid));
+   				if(isset($arr['positive_add']) and isset($arr['negative_less']))
+					{
+						$node->positive_add = $arr['positive_add'] ;
+						$node->negative_less = $arr['negative_less'];
+					}
+					
+					break;
+			
+			case 'view' :
+					if($node->positive_add != 0) {
+					  // Yes, it can be themed
+						$node->content['marking_information'] = array(
+					   '#value' => t('<b>Right Answer : + @add <br/>  Wrong Answer    : - @less </b>', array('@add' => $node->positive_add , '@less' => $node->negative_less)),
+					   '#weight' => 10
+						);
+					}
+
+					break;
+					
+			case 'insert':
+					db_query("INSERT INTO {quiz_marking} (nid,vid,positive_add,negative_less) VALUES (%d, %d, %d,%d)", $node->nid, $node->vid, $node->marking['positive_add'], $node->marking['negative_less']);
+					break;
+			
+			case 'update':
+					$is_not_there = db_fetch_array(db_query('SELECT * FROM {quiz_marking} WHERE nid = %d AND vid = %d', $node->nid, $node->vid));
+					
+					if(!isset($is_not_there['nid']) || $node->revision) {
+						db_query("INSERT INTO {quiz_marking} (nid,vid,positive_add,negative_less) VALUES (%d, %d, %d,%d)", $node->nid, $node->vid, $node->marking['positive_add'], $node->marking['negative_less']);
+				}
+				else {
+					db_query("UPDATE {quiz_marking} SET positive_add = '%d',negative_less = '%d' WHERE vid = %d", $node->marking['positive_add'], $node->marking['negative_less'], $node->vid);
+				}
+				break;
+ 	}
+ }
+ 
+}
+
+/**
+ * Implementation of hook_form_alter(). Adds positive_add and negative_less item fields to the node form.
+ */
+function quiz_marking_form_alter(&$form, $form_state, $form_id) {
+	
+	if($form['#node']->type == 'multichoice' || $form['#node']->type == 'truefalse' ) {
+	  if (isset($form['#node']) && $form['#node']->type .'_node_form' == $form_id) {
+
+	    $form['marking'] = array(
+	      '#type' => 'fieldset',
+	      '#title' => t('Quiz Marking'),
+	      '#access' => user_access('administer quiz'),
+	      '#collapsible' => TRUE,
+	      '#collapsed' => FALSE,
+	      '#tree' => TRUE,
+	      '#weight' => 5,
+	    );
+
+	    $form['marking']['positive_add'] = array(
+		    '#type' => 'textfield',
+				'#title' => t('Positive Add if answer is right'),
+				'#required' => TRUE,
+				'#default_value' => isset($form['#node']->positive_add)? $form['#node']->positive_add :0,
+				'#maxlength' => 255,
+	    );
+		
+	    $form['marking']['negative_less'] = array(
+		    '#type' => 'textfield',
+				'#title' => t('Negative Less if answer is wrong'),
+				'#required' => TRUE,
+				'#default_value' => isset($form['#node']->negative_less)? $form['#node']->negative_less :0,
+				'#maxlength' => 255,
+    	);
+   }
+  }
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+ 
+function quiz_marking_theme() {
+
+  return array(
+    'quiz_marking_show_ranks' => array(
+      'arguments' => array('results' => NULL),
+      'file' => 'quiz_marking.admin.inc',
+    ),
+    'quiz_marking_show_available_quizes' => array(
+      'arguments' => array('results' => NULL),
+      'file' => 'quiz_marking.admin.inc',
+    )
+  );
+}
+
+
+/**
+ *  ==================== Utility Functions ============================
+ */
+
+
+/*
+ * This function is the main logic of our calculation. It checks for all result ids under a quiz
+ * and performs marking, so we make sure that we check a result id only once and mark it 'checked' 
+ * under database. So there is this 'view' function which lets you use this functionality.
+ * However if you want to do this calculation for all resuld ids, there is this 'update' operation
+ */
+ 
+function _quiz_marking_view_operation($quiz_id,$op) {
+  
+	$results = array();
+	$breadcrumb = drupal_get_breadcrumb();
+  // Lets add the Quiz Results to the breadcrumb array.
+  $breadcrumb[] = l(t('Quiz Results'), 'admin/quiz/quiz_marking');
+  drupal_set_breadcrumb($breadcrumb);
+	
+	$heading = db_result(db_query('SELECT title FROM {node} WHERE nid = %d', $quiz_id));
+	drupal_set_title($heading);	
+	
+	$select_result_ids = db_query('SELECT * FROM {quiz_node_results} WHERE nid = %d', $quiz_id);
+	
+	//for each result id under this quiz
+	
+	//$op == 0 => Cached View Operation (is_calculated is considered)
+	//$op == 1 => Force View Operation  (is_calculated is not considered)
+
+	while($result = db_fetch_array($select_result_ids)) {
+	
+		if($op || !$result['is_calculated']) {		
+
+			$marks = 0;		
+			$select_question_nid_vid = db_query('SELECT * FROM {quiz_node_results_answers} WHERE result_id = %d', $result['result_id']);
+			//for each question_id unser a result_id		
+			while($question = db_fetch_array($select_question_nid_vid)) {
+				$question_marking = db_fetch_array(db_query('SELECT * from {quiz_marking} WHERE nid = %d AND vid = %d', $question['question_nid'], $question['question_vid']));
+				if(isset($question_marking['positive_add'])) { //may be there is no entry for such question nid+vid
+					if(!$question['is_skipped']) {
+						if($question['is_correct']) {
+							$marks += $question_marking['positive_add'];
+						}
+						else {
+							$marks -= $question_marking['negative_less'];
+						}
+					}
+				}
+			}
+		
+		db_query('UPDATE {quiz_node_results} SET marks = %d, is_calculated = %d WHERE nid = %d AND result_id = %d', $marks, 1, $quiz_id, $result['result_id']);
+		}
+	}
+
+	if($op == 1)
+			drupal_set_message('Marking has been updated');
+	
+	$results = _quiz_marking_calculate_ranks($quiz_id);
+	return theme('quiz_marking_show_ranks',$results);
+	
+}
+
+function _quiz_marking_calculate_ranks($quiz_id) {
+	$results = array();
+		$dbresult = db_query('SELECT * FROM {quiz_node_results},{users} WHERE {quiz_node_results}.nid = %d AND {quiz_node_results}.uid = {users}.uid ORDER BY marks DESC', $quiz_id);
+	
+	while( $line = db_fetch_array($dbresult) ) {
+		$results[$line['result_id']] = $line ;
+	}
+
+	return $results;
+}
+
+function _show_available_quizes() {
+
+	$results = array();	
+	$breadcrumb = drupal_get_breadcrumb();
+  // Lets add the Quiz Results to the breadcrumb array.
+  $breadcrumb[] = l(t('Quiz Results'), 'admin/quiz/quiz_marking');
+  drupal_set_breadcrumb($breadcrumb);
+
+	$dbresult = db_query('SELECT DISTINCT {quiz_node_results}.nid as nid,title FROM {quiz_node_results},{node} WHERE {node}.nid = {quiz_node_results}.nid');
+	
+	while( $line = db_fetch_array($dbresult) ) {
+		$results[] = $line;
+	}
+	return theme('quiz_marking_show_available_quizes',$results);
+
+}
+
+

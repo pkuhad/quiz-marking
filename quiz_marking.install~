@@ -1,0 +1,156 @@
+<?php
+// $ID$
+
+/**
+* Implementation of hook_install().
+*/
+function quiz_marking_install() {
+//add field 'marks'
+
+	$field = array(
+		'type' => 'int',
+		'unsigned' => FALSE,
+		'not null' => TRUE,
+		'default' => 0,
+		'initial' => 0, // Sets initial value for preexisting nodes.
+		'description' => t('Calculated Marks for a Result ID'),
+	);
+
+	// Create a regular index called 'marks' on the field named 'marks'.
+	$keys['indexes'] = array('marks' => array('marks') );
+	$ret = array(); // Results of the SQL calls will be stored here.
+	
+	db_add_field($ret, 'quiz_node_results', 'marks', $field, $keys);
+
+//add field 'is_calculated'
+
+	$field = array(
+		'type' => 'int',
+		'unsigned' => TRUE,
+		'not null' => TRUE,
+		'default' => 0,
+		'initial' => 0, // Sets initial value for preexisting nodes.
+		'description' => t('Whether Marks has been calculated or not for a Result ID'),
+	);
+
+	$ret = array(); // Results of the SQL calls will be stored here.
+	
+	db_add_field($ret, 'quiz_node_results', 'is_calculated', $field);
+
+//Customized Patch for quiz module : add field 'time_left'
+
+	$field = array(
+		'type' => 'int',
+		'unsigned' => TRUE,
+		'not null' => TRUE,
+		'default' => 0,
+		'initial' => 0, // Sets initial value for preexisting nodes.
+		'description' => t('errata for Quiz modules'),
+	);
+
+	$ret = array(); // Results of the SQL calls will be stored here.
+	
+	db_add_field($ret, 'quiz_node_results', 'time_left', $field);
+
+//add field 'sks_user_id' to user table
+
+	$field = array(
+		'type' => 'int',
+		'unsigned' => FALSE,
+		'not null' => TRUE,
+		'default' => -1,
+		'initial' => -1, // Sets initial value for preexisting nodes.
+		'description' => t('Unique User ID Provided to Sakshama User'),
+	);
+
+	$ret = array(); // Results of the SQL calls will be stored here.
+	
+	db_add_field($ret, 'users', 'sks_user_id', $field);		
+
+//add field 'sks_team_id' to user table
+
+	$field = array(
+		'type' => 'int',
+		'unsigned' => FALSE,
+		'not null' => TRUE,
+		'default' => -1,
+		'initial' => -1, // Sets initial value for preexisting nodes.
+		'description' => t('Unique Team ID Provided to Sakshama User'),
+	);
+
+	$ret = array(); // Results of the SQL calls will be stored here.
+	
+	db_add_field($ret, 'users', 'sks_team_id', $field);		
+
+	
+	//Schema Installation
+	drupal_install_schema('quiz_marking');
+	
+	
+	
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function quiz_marking_uninstall() {
+	//Revert quiz_node_results table
+	db_query("ALTER TABLE {quiz_node_results}  DROP marks, DROP is_calculated, DROP time_left");
+
+	//Revert users table
+	db_query("ALTER TABLE {users}  DROP sks_user_id, DROP sks_team_id");
+
+	
+	//Schema Uninstallation
+	drupal_uninstall_schema('quiz_marking');	
+
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+ 
+function quiz_marking_schema() {
+	$schema['quiz_marking'] = array(
+		'description' => t("Stores Positive and Negative marks associated with multichoice and true/false question types"),
+		'fields' => array(
+			'nid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+				'description' => t("multichoice and true_false question {node}.nid"),
+				),
+			'vid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+				'description' => t("multichoice and true_false question {node_revisions}.vid "),
+				),
+			'positive_add' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+				'description' => t("Positive Add if answer is right"),
+				),
+			'negative_less' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+				'description' => t("Negative Less if answer is wrong"),
+				),
+			),
+			'primary key' => array('nid', 'vid'),
+			'unique keys' => array('vid' => array('vid')),
+			'indexes' => array('nid' => array('nid') ),
+		);
+		
+		return $schema;
+}
+			
+
+
+

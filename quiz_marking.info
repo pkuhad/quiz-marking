@@ -1,0 +1,7 @@
+name = Quiz Marking
+description = An Extension for Drupal's Quiz project to provide positive-negative marking
+core = 6.x
+dependencies[] = quiz
+dependencies[] = multichoice
+dependencies[] = quiz_question
+
